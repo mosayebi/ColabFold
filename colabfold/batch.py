@@ -23,6 +23,8 @@ import importlib_metadata
 import numpy as np
 import pandas
 
+from pathlib import Path
+
 try:
     import alphafold
 except ModuleNotFoundError:
@@ -322,6 +324,7 @@ def predict_structure(
     """Predicts structure using AlphaFold for the given sequence."""
 
     plddts, paes, ptmscore, iptmscore = [], [], [], []
+    relaxation_scores = []
     max_paes = []
     unrelaxed_pdb_lines = []
     relaxed_pdb_lines = []
@@ -476,12 +479,12 @@ def predict_structure(
                 max_outer_iterations=20,
                 use_gpu=use_gpu_relax,
             )
-            relaxed_pdb_str, _, _ = amber_relaxer.process(prot=unrelaxed_protein)
+            relaxed_pdb_str, relaxation_info, _ = amber_relaxer.process(prot=unrelaxed_protein)
 
             relax_time = time.time() - start
             relax_times.append(relax_time)
-
-            logger.info(f"Relaxation took {relax_time:.1f}s")
+            relaxation_scores.append(relaxation_info)
+            logger.info(f"Relaxation took {relax_time:.1f}s with {', '.join([f'{k}={x:.5g}' for k,x in relaxation_info.items()])}")
 
             if prediction_callback is not None:
                 prediction_callback(
@@ -495,6 +498,7 @@ def predict_structure(
             relaxed_pdb_path = result_dir.joinpath(f"{prefix}_relaxed_{model_name}.pdb")
             relaxed_pdb_path.write_text(relaxed_pdb_str)
             relaxed_pdb_lines.append(relaxed_pdb_str)
+
         # early stop criteria fulfilled
         if mean_score > stop_at_score or mean_score < stop_at_score_below:
             break
@@ -547,6 +551,8 @@ def predict_structure(
             }
             if model_type.startswith("AlphaFold2-multimer"):
                 scores["iptm"] = np.around(iptmscore[key], 2).item()
+            if do_relax:
+                scores.update(relaxation_scores[key])
             json.dump(scores, fp)
 
         out[key] = {
