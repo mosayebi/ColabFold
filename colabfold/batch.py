@@ -778,6 +778,7 @@ def get_msa_and_templates(
             use_templates=True,
             host_url=host_url,
         )
+
         if custom_template_path is not None:
             template_paths = {}
             for index in range(0, len(query_seqs_unique)):
@@ -1060,8 +1061,61 @@ def generate_input_feature(
     return (input_feature, domain_names)
 
 
+def generate_template_features(query_seqs_unique, a3m_lines, use_templates, custom_template_path=None):
+    template_features = []
+    if use_templates:
+        # TODO: local search
+        # a3m_lines_mmseqs2, template_paths = run_mmseqs2(
+        #     query_seqs_unique,
+        #     str(result_dir.joinpath(jobname)),
+        #     use_env,
+        #     use_templates=True,
+        #     host_url=host_url,
+        # )
+        if custom_template_path is not None:
+            template_paths = {}
+            for index in range(0, len(query_seqs_unique)):
+                template_paths[index] = custom_template_path
+        else:
+            logger.error("currently only custom template is implemented for local mode")
+        if template_paths is None:
+            logger.info("No template detected")
+            for index in range(0, len(query_seqs_unique)):
+                template_feature = mk_mock_template(query_seqs_unique[index])
+                template_features.append(template_feature)
+        else:
+            for index in range(0, len(query_seqs_unique)):
+                if template_paths[index] is not None:
+                    template_feature = mk_template(
+                        a3m_lines[index],
+                        template_paths[index],
+                        query_seqs_unique[index],
+                    )
+                    if len(template_feature["template_domain_names"]) == 0:
+                        template_feature = mk_mock_template(query_seqs_unique[index])
+                        logger.info(f"Sequence {index} found no templates")
+                    else:
+                        logger.info(
+                            f"Sequence {index} found templates: {template_feature['template_domain_names'].astype(str).tolist()}"
+                        )
+                else:
+                    template_feature = mk_mock_template(query_seqs_unique[index])
+                    logger.info(f"Sequence {index} found no templates")
+
+                template_features.append(template_feature)
+    else:
+        for index in range(0, len(query_seqs_unique)):
+            template_feature = mk_mock_template(query_seqs_unique[index])
+            template_features.append(template_feature)
+
+    return template_features
+
+
 def unserialize_msa(
-    a3m_lines: List[str], query_sequence: Union[List[str], str]
+    a3m_lines: List[str],
+    query_sequence: Union[List[str], str],
+    use_templates: bool = False,
+    custom_template_path: Optional[Union[str, Path]] = None,
 ) -> Tuple[
     Optional[List[str]],
     Optional[List[str]],
@@ -1152,10 +1206,13 @@ def unserialize_msa(
             paired_msa[i] = ">" + str(num + i) + "\n" + query_seqs_unique[0] + "\n"
     if is_single_protein:
         paired_msa = None
-    template_features = []
-    for query_seq in query_seqs_unique:
-        template_feature = mk_mock_template(query_seq)
-        template_features.append(template_feature)
+
+    template_features = generate_template_features(
+        query_seqs_unique,
+        ['\n'.join(a3m_lines)],
+        use_templates=use_templates,
+        custom_template_path=custom_template_path
+    )
 
     return (
         unpaired_msa,
@@ -1328,7 +1385,11 @@ def run(
                     query_seqs_unique,
                     query_seqs_cardinality,
                     template_features,
-                ) = unserialize_msa(a3m_lines, query_sequence)
+                ) = unserialize_msa(a3m_lines,
+                                    query_sequence,
+                                    use_templates,
+                                    custom_template_path,
+                                    )
             else:
                 (
                     unpaired_msa,
