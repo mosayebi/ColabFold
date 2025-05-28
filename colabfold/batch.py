@@ -574,7 +574,9 @@ def get_msa_and_templates(
 ]:
     from colabfold.colabfold import run_mmseqs2
 
-    use_env = msa_mode == "mmseqs2_uniref_env" or msa_mode == "mmseqs2_uniref_env_envpair"
+    use_env = "mmseqs2_uniref_env" in msa_mode or "mmseqs2_uniref_env_envpair" in msa_mode
+    use_omg = 'omg' in msa_mode
+    use_envhog = 'envhog' in msa_mode
     use_envpair = msa_mode == "mmseqs2_uniref_env_envpair"
     if isinstance(query_sequences, str): query_sequences = [query_sequences]
 
@@ -605,7 +607,9 @@ def get_msa_and_templates(
                 a3m_lines_mmseqs2 = run_mmseqs2(
                     query_seqs_unique,
                     str(result_dir.joinpath(jobname)),
-                    use_env,
+                    use_env = use_env,
+                    use_omg = use_omg,
+                    use_envhog = use_envhog,
                     use_templates=False,
                     host_url=host_url,
                     user_agent=user_agent,
@@ -619,7 +623,9 @@ def get_msa_and_templates(
             a3m_lines_mmseqs2, template_paths = run_mmseqs2(
                 query_seqs_unique,
                 str(result_dir.joinpath(jobname)),
-                use_env,
+                use_env = use_env,
+                use_omg = use_omg,
+                use_envhog = use_envhog,
                 use_templates=True,
                 host_url=host_url,
                 user_agent=user_agent,
@@ -668,7 +674,9 @@ def get_msa_and_templates(
             a3m_lines = run_mmseqs2(
                 query_seqs_unique,
                 str(result_dir.joinpath(jobname)),
-                use_env,
+                use_env = use_env,
+                use_omg = use_omg,
+                use_envhog = use_envhog,
                 use_pairing=False,
                 host_url=host_url,
                 user_agent=user_agent,
@@ -1421,7 +1429,7 @@ def run(
                     calc_extra_ptm=calc_extra_ptm,
                     use_probs_extra=use_probs_extra,
                 )
-                
+
                 result_files += results["result_files"]
                 ranks.append(results["rank"])
                 metrics.append(results["metric"])
@@ -1522,9 +1530,10 @@ def main():
     )
     msa_group.add_argument(
         "--msa-mode",
-        default="mmseqs2_uniref_env",
+        default="mmseqs2_uniref_env_omg_envhog",
         choices=[
             "mmseqs2_uniref_env",
+            "mmseqs2_uniref_env_omg_envhog",
             "mmseqs2_uniref_env_envpair",
             "mmseqs2_uniref",
             "single_sequence",
@@ -1863,7 +1872,7 @@ def main():
 
     if args.msa_mode != "single_sequence" and not args.templates:
         uses_api = any((query[2] is None for query in queries))
-        if uses_api and args.host_url == DEFAULT_API_SERVER:
+        if uses_api and args.host_url == DEFAULT_API_SERVER and args.host_url != "http://ont-msa0:80":
             print(ACCEPT_DEFAULT_TERMS, file=sys.stderr)
 
     model_order = [int(i) for i in args.model_order.split(",")]

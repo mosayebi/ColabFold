@@ -66,10 +66,10 @@ def clear_mem(device="gpu"):
 
 TQDM_BAR_FORMAT = '{l_bar}{bar}| {n_fmt}/{total_fmt} [elapsed: {elapsed} remaining: {remaining}]'
 
-def run_mmseqs2(x, prefix, use_env=True, use_filter=True,
+def run_mmseqs2(x, prefix, use_env=True, use_omg=False, use_envhog=False, use_filter=True,
                 use_templates=False, filter=None, use_pairing=False, pairing_strategy="greedy",
-                host_url="https://api.colabfold.com",
-                user_agent: str = "") -> Tuple[List[str], List[str]]:
+                host_url="http://ont-msa0:80",
+                user_agent: str = "ColabFold") -> Tuple[List[str], List[str]]:
   submission_endpoint = "ticket/pair" if use_pairing else "ticket/msa"
 
   headers = {}
@@ -165,6 +165,10 @@ def run_mmseqs2(x, prefix, use_env=True, use_filter=True,
     mode = "env" if use_env else "all"
   else:
     mode = "env-nofilter" if use_env else "nofilter"
+  if use_omg:
+    mode += "-omg"
+  if use_envhog:
+    mode += "-envhog"
 
   if use_pairing:
     use_templates = False
@@ -247,6 +251,8 @@ def run_mmseqs2(x, prefix, use_env=True, use_filter=True,
   else:
     a3m_files = [f"{path}/uniref.a3m"]
     if use_env: a3m_files.append(f"{path}/bfd.mgnify30.metaeuk30.smag30.a3m")
+    if use_omg: a3m_files.append(f"{path}/omg50.a3m")
+    if use_envhog: a3m_files.append(f"{path}/envhog80.a3m")
 
   # extract a3m files
   if any(not os.path.isfile(a3m_file) for a3m_file in a3m_files):
