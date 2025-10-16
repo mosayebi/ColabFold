@@ -7,11 +7,13 @@ import math
 import os
 import shutil
 import subprocess
+import json
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 from pathlib import Path
 from typing import List, Union
 
 from colabfold.input import get_queries, msa_to_str, safe_filename
+from colabfold.utils import AF3Utils
 
 logger = logging.getLogger(__name__)
 
@@ -107,10 +109,13 @@ def mmseqs_search_monomer(
             dbSuffix3 = ".idx"
 
     search_param = ["--num-iterations", "3", "--db-load-mode", str(db_load_mode), "-a", "-e", "0.1", "--max-seqs", "10000"]
+    template_search_param = []
     if gpu:
         search_param += ["--gpu", str(gpu), "--prefilter-mode", "1"] # gpu version only supports ungapped prefilter currently
+        template_search_param += ["--gpu", str(gpu), "--prefilter-mode", "1"]
     else:
         search_param += ["--prefilter-mode", str(prefilter_mode)]
+        template_search_param += ["-s", "7.5", "--prefilter-mode", str(prefilter_mode)]
         if s is not None: # sensitivy can only be set for non-gpu version, gpu version runs at max sensitivity
             search_param += ["-s", "{:.1f}".format(s)]
         else:
@@ -168,7 +173,7 @@ def mmseqs_search_monomer(
 
     if use_templates and not base.joinpath(f"{template_db}.m8").with_suffix('.m8.dbtype').exists():
         run_mmseqs(mmseqs, ["search", base.joinpath("prof_res"), dbbase.joinpath(template_db), base.joinpath("res_pdb"),
-                            base.joinpath("tmp2"), "--db-load-mode", str(db_load_mode), "--threads", str(threads), "-s", "7.5", "-a", "-e", "0.1", "--prefilter-mode", str(prefilter_mode)])
+                            base.joinpath("tmp2"), "--db-load-mode", str(db_load_mode), "--threads", str(threads), "-a", "-e", "0.1"] + template_search_param)
         run_mmseqs(mmseqs, ["convertalis", base.joinpath("prof_res"), dbbase.joinpath(f"{template_db}{dbSuffix3}"), base.joinpath("res_pdb"),
                             base.joinpath(f"{template_db}"), "--format-output",
                             "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,cigar",
@@ -258,10 +263,12 @@ def mmseqs_search_pair(
         search_param += ["--gpu-server", str(gpu_server)]
     expand_param = ["--expansion-mode", "0", "-e", "inf", "--expand-filter-clusters", "0", "--max-seq-id", "0.95",]
     run_mmseqs(mmseqs, ["search", base.joinpath("qdb"), dbbase.joinpath(db), base.joinpath("res"), base.joinpath("tmp"), "--threads", str(threads),] + search_param,)
+    run_mmseqs(mmseqs, ["mvdb", base.joinpath("tmp/latest/profile_1"), base.joinpath("prof_res")])
+    run_mmseqs(mmseqs, ["lndb", base.joinpath("qdb_h"), base.joinpath("prof_res_h")])    
     run_mmseqs(mmseqs, ["expandaln", base.joinpath("qdb"), dbbase.joinpath(f"{db}{dbSuffix1}"), base.joinpath("res"), dbbase.joinpath(f"{db}{dbSuffix2}"), base.joinpath("res_exp"), "--db-load-mode", str(db_load_mode), "--threads", str(threads),] + expand_param,)
-    run_mmseqs(mmseqs, ["align", base.joinpath("qdb"), dbbase.joinpath(f"{db}{dbSuffix1}"), base.joinpath("res_exp"), base.joinpath("res_exp_realign"), "--db-load-mode", str(db_load_mode), "-e", "0.001", "--max-accept", "1000000", "--threads", str(threads), "-c", "0.5", "--cov-mode", "1",],)
+    run_mmseqs(mmseqs, ["align", base.joinpath("prof_res"), dbbase.joinpath(f"{db}{dbSuffix1}"), base.joinpath("res_exp"), base.joinpath("res_exp_realign"), "--db-load-mode", str(db_load_mode), "-e", "0.001", "--max-accept", "1000000", "--threads", str(threads),],)
     run_mmseqs(mmseqs, ["pairaln", base.joinpath("qdb"), dbbase.joinpath(f"{db}"), base.joinpath("res_exp_realign"), base.joinpath("res_exp_realign_pair"), "--db-load-mode", str(db_load_mode), "--pairing-mode", str(pairing_strategy), "--pairing-dummy-mode", "0", "--threads", str(threads), ],)
-    run_mmseqs(mmseqs, ["align", base.joinpath("qdb"), dbbase.joinpath(f"{db}{dbSuffix1}"), base.joinpath("res_exp_realign_pair"), base.joinpath("res_exp_realign_pair_bt"), "--db-load-mode", str(db_load_mode), "-e", "inf", "-a", "--threads", str(threads), ],)
+    run_mmseqs(mmseqs, ["align", base.joinpath("prof_res"), dbbase.joinpath(f"{db}{dbSuffix1}"), base.joinpath("res_exp_realign_pair"), base.joinpath("res_exp_realign_pair_bt"), "--db-load-mode", str(db_load_mode), "-e", "inf", "-a", "--threads", str(threads), ],)
     run_mmseqs(mmseqs, ["pairaln", base.joinpath("qdb"), dbbase.joinpath(f"{db}"), base.joinpath("res_exp_realign_pair_bt"), base.joinpath("res_final"), "--db-load-mode", str(db_load_mode), "--pairing-mode", str(pairing_strategy), "--pairing-dummy-mode", "1", "--threads", str(threads),],)
     run_mmseqs(mmseqs, ["result2msa", base.joinpath("qdb"), dbbase.joinpath(f"{db}{dbSuffix1}"), base.joinpath("res_final"), base.joinpath("pair.a3m"), "--db-load-mode", str(db_load_mode), "--msa-format-mode", "5", "--threads", str(threads),],)
     if unpack:
@@ -273,6 +280,8 @@ def mmseqs_search_pair(
     run_mmseqs(mmseqs, ["rmdb", base.joinpath("res_exp_realign_pair")])
     run_mmseqs(mmseqs, ["rmdb", base.joinpath("res_exp_realign_pair_bt")])
     run_mmseqs(mmseqs, ["rmdb", base.joinpath("res_final")])
+    run_mmseqs(mmseqs, ["rmdb", base.joinpath("prof_res")])
+    run_mmseqs(mmseqs, ["rmdb", base.joinpath("prof_res_h")])
     shutil.rmtree(base.joinpath("tmp"))
     # @formatter:on
     # fmt: on
@@ -392,6 +401,14 @@ def main():
     parser.add_argument(
         "--gpu-server", type=int, default=0, choices=[0, 1], help="Whether to use GPU server (1) or not (0)"
     )
+
+    # AlphaFold3 relevant params
+    parser.add_argument(
+        "--af3-json", action="store_true", help="Generate input JSON for AlphaFold3 from the provided FASTA/A3M file."
+    )
+    parser.add_argument(
+        "--af3-msa-as-path", action="store_true", help="Save MSA as a file path instead of a string in the JSON."
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level = logging.INFO)
@@ -399,7 +416,7 @@ def main():
     queries, is_complex = get_queries(args.query, None)
 
     queries_unique = []
-    for job_number, (raw_jobname, query_sequences, a3m_lines) in enumerate(queries):
+    for job_number, (raw_jobname, query_sequences, a3m_lines, other_molecules) in enumerate(queries):
         # remove duplicates before searching
         query_sequences = (
             [query_sequences] if isinstance(query_sequences, str) else query_sequences
@@ -413,7 +430,7 @@ def main():
             seq_idx = query_seqs_unique.index(seq)
             query_seqs_cardinality[seq_idx] += 1
 
-        queries_unique.append([raw_jobname, query_seqs_unique, query_seqs_cardinality])
+        queries_unique.append([raw_jobname, query_seqs_unique, query_seqs_cardinality, other_molecules])
 
     args.base.mkdir(exist_ok=True, parents=True)
     query_file = args.base.joinpath("query.fas")
@@ -422,6 +439,7 @@ def main():
             raw_jobname,
             query_sequences,
             query_seqs_cardinality,
+            _
         ) in enumerate(queries_unique):
             for j, seq in enumerate(query_sequences):
                 # The header of first sequence set as 101
@@ -430,7 +448,7 @@ def main():
 
     run_mmseqs(
         args.mmseqs,
-        ["createdb", query_file, args.base.joinpath("qdb"), "--shuffle", "0"],
+        ["createdb", query_file, args.base.joinpath("qdb"), "--shuffle", "0", "--dbtype", "1"],
     )
     with args.base.joinpath("qdb.lookup").open("w") as f:
         id = 0
@@ -439,6 +457,7 @@ def main():
             raw_jobname,
             query_sequences,
             query_seqs_cardinality,
+            _
         ) in enumerate(queries_unique):
             for seq in query_sequences:
                 raw_jobname_first = raw_jobname.split()[0]
@@ -503,12 +522,13 @@ def main():
                 unpack=args.unpack,
             )
 
-        if args.unpack:
+        if args.unpack or args.af3_json:
             id = 0
             for job_number, (
                 raw_jobname,
                 query_sequences,
                 query_seqs_cardinality,
+                other_molecules,
             ) in enumerate(queries_unique):
                 unpaired_msa = []
                 paired_msa = None
@@ -517,28 +537,52 @@ def main():
                 for seq in query_sequences:
                     with args.base.joinpath(f"{id}.a3m").open("r") as f:
                         unpaired_msa.append(f.read())
-                    args.base.joinpath(f"{id}.a3m").unlink()
+                    if args.af3_json:
+                        args.base.joinpath(f"{id}.a3m").unlink()
 
                     if args.use_env_pairing:
                         with open(args.base.joinpath(f"{id}.paired.a3m"), 'a') as file_pair:
                             with open(args.base.joinpath(f"{id}.env.paired.a3m"), 'r') as file_pair_env:
                                 while chunk := file_pair_env.read(10 * 1024 * 1024):
                                     file_pair.write(chunk)
-                        args.base.joinpath(f"{id}.env.paired.a3m").unlink()
+                        if args.unpack:
+                            args.base.joinpath(f"{id}.env.paired.a3m").unlink()
 
                     if len(query_seqs_cardinality) > 1:
                         with args.base.joinpath(f"{id}.paired.a3m").open("r") as f:
                             paired_msa.append(f.read())
-                    args.base.joinpath(f"{id}.paired.a3m").unlink()
+                    if args.unpack:
+                        args.base.joinpath(f"{id}.paired.a3m").unlink()
                     id += 1
-                msa = msa_to_str(
-                    unpaired_msa, paired_msa, query_sequences, query_seqs_cardinality
-                )
-                args.base.joinpath(f"{job_number}.a3m").write_text(msa)
+
+                if args.af3_json:
+                    af3 = AF3Utils(raw_jobname, query_sequences, query_seqs_cardinality, unpaired_msa, paired_msa, other_molecules)
+                    with open(args.base.joinpath(f"{job_number}.json"), 'w') as f:
+                        f.write(json.dumps(af3.content, indent=4))
+
+                if args.unpack:   
+                    msa = msa_to_str(
+                        unpaired_msa, paired_msa, query_sequences, query_seqs_cardinality
+                    )
+                    args.base.joinpath(f"{job_number}.a3m").write_text(msa)
+    else:
+        if args.af3_json:
+            id = 0
+            for job_number, (raw_jobname, query_sequences, query_seqs_cardinality, other_molecules) in enumerate(queries_unique):
+                unpaired_msa = []
+                for seq in query_sequences:
+                    with args.base.joinpath(f"{id}.a3m").open("r") as f:
+                        unpaired_msa.append(f.read())
+                    id += 1
+
+                # Create AF3Utils object and write JSON
+                af3 = AF3Utils(raw_jobname, query_sequences, query_seqs_cardinality, unpaired_msa, None, other_molecules)
+                with open(args.base.joinpath(f"{job_number}.json"), 'w') as f:
+                    f.write(json.dumps(af3.content, indent=4))
 
     if args.unpack:
         # rename a3m files
-        for job_number, (raw_jobname, query_sequences, query_seqs_cardinality) in enumerate(queries_unique):
+        for job_number, (raw_jobname, query_sequences, query_seqs_cardinality, other_molecules) in enumerate(queries_unique):
             os.rename(
                 args.base.joinpath(f"{job_number}.a3m"),
                 args.base.joinpath(f"{safe_filename(raw_jobname)}.a3m"),
@@ -547,7 +591,7 @@ def main():
         # rename m8 files
         if args.use_templates:
             id = 0
-            for raw_jobname, query_sequences, query_seqs_cardinality in queries_unique:
+            for raw_jobname, query_sequences, query_seqs_cardinality, _ in queries_unique:
                 with args.base.joinpath(f"{safe_filename(raw_jobname)}_{args.db2}.m8").open(
                     "w"
                 ) as f:
@@ -558,6 +602,14 @@ def main():
                         id += 1
         run_mmseqs(args.mmseqs, ["rmdb", args.base.joinpath("qdb")])
         run_mmseqs(args.mmseqs, ["rmdb", args.base.joinpath("qdb_h")])
+
+    if args.af3_json:
+        # rename json files
+        for job_number, (raw_jobname, query_sequences, query_seqs_cardinality, other_molecules) in enumerate(queries_unique):
+            os.rename(
+                args.base.joinpath(f"{job_number}.json"),
+                args.base.joinpath(f"{safe_filename(raw_jobname)}.json"),
+            )
 
     query_file.unlink()
 

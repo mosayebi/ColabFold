@@ -4,6 +4,9 @@ For details of what was changed in v1.5, see [change log](https://github.com/sok
 
 <p align="center"><img src="https://github.com/sokrypton/ColabFold/raw/main/.github/ColabFold_Marv_Logo.png" height="250"/></p>
 
+> [!NOTE]
+> 04Aug2025: We changed the taxonomy/pairing files for the UniRef100 database. This might affect multimer predictions. Check [the wiki entry](https://github.com/sokrypton/ColabFold/wiki/MSA-Server-Database-History) for details. 
+
 ### Making Protein folding accessible to all via Google Colab!
 
 | Notebooks                                                                                                                                        | monomers | complexes | mmseqs2 | jackhmmer | templates |
@@ -30,10 +33,9 @@ Check the wiki page [old retired notebooks](https://github.com/sokrypton/ColabFo
   - Yes, but be **CAREFUL**, the bfactor column is populated with pLDDT confidence values (higher = better). Phenix.phaser expects a "real" bfactor, where (lower = better). See [post](https://twitter.com/cheshireminima/status/1423929241675120643) from Claudia Millán.
 - What is the maximum length?
   - Limits depends on free GPU provided by Google-Colab `fingers-crossed`
-  - For GPU: `Tesla T4` or `Tesla P100` with ~16G the max length is ~2000
-  - For GPU: `Tesla K80` with ~12G the max length is ~1000
+  - For GPU: `Tesla T4` with ~16G the max length is ~2000
   - To check what GPU you got, open a new code cell and type `!nvidia-smi`
-- Is it okay to use the MMseqs2 MSA server (`cf.run_mmseqs2`) on a local computer?
+- Is it okay to use the MMseqs2 MSA server on a local computer?
   - You can access the server from a local computer if you queries are serial from a single IP. Please do not use multiple computers to query the server.
 - Where can I download the databases used by ColabFold?
   - The databases are available at [colabfold.mmseqs.com](https://colabfold.mmseqs.com)
@@ -80,7 +82,7 @@ colabfold_batch input_sequences.fasta out_dir
 
 First create a directory for the databases on a disk with sufficient storage (940GB (!)). Depending on where you are, this will take a couple of hours:
 
-Note: [MMseqs2 `71dd32ec43e3ac4dabf111bbc4b124f1c66a85f1` (May 28, 2023)](https://github.com/soedinglab/MMseqs2/archive/71dd32ec43e3ac4dabf111bbc4b124f1c66a85f1.zip) is used to create the databases and perform sequece search in the ColabFold MSA server. Please use this version if you want to obtain the same MSAs as the server.
+Note: [MMseqs2 Release 18](https://github.com/soedinglab/MMseqs2/releases/tag/18-8cc5c) is used to create the databases and perform sequece search in the ColabFold MSA server. Please use this version if you want to obtain the same MSAs as the server.
 
 ```shell
 MMSEQS_NO_INDEX=1 ./setup_databases.sh /path/to/db_folder
@@ -109,6 +111,48 @@ In some cases using precomputed database can still be useful. For the following 
 
 If no index was created (`MMSEQS_NO_INDEX=1` was set), then `--db-load-mode` does not do anything and can be ignored.
 
+### Saving MSAs in AlphaFold3-compatible JSON format
+You can export MSAs into a json format compatible with AlphaFold3 input using the `--af3-json` option. 
+
+**With colabfold_search:**
+
+If you are using the local database setup with colabfold_search, you can add the `--af3-json` option to save the MSAs as AlphaFold3 input json:
+```shell
+colabfold_search --mmseqs /path/to/bin/mmseqs input_sequences.fasta /path/to/db_folder msas --af3-json
+```
+This will create a json file in the `msas` folder, using the same name as the a3m file.
+
+**With colabfold_batch:**
+
+If you are using the MSA server via colabfold_batch, you can also use the `--af3-json` option. However, structure prediction will be skipped, and only the json file will be generated. 
+```shell
+colabfold_batch input_sequences.fasta out_dir --af3-json
+```
+
+#### Including non-protein molecules in FASTA
+AlphaFold3 supports non-protein components such as ligands and nucleic acids in input complexes. To include these in the generated json file, you can specify them directly in your FASTA input using the following format, `molecule type|sequence|(copies)`. As molecue types, dna, rna, ccd, smiles are allowed.
+
+ > :exclamation: **Substitute aromatic bonds in SMILES**
+ > If your SMILES string contains aromatic bonds (`:`), please replace them with semicolons (`;`) to avoid internal parsing issues.
+
+- Examples
+  - For DNA: `dna|ATCG`
+  - For RNA: `rna|AUGC`
+  - For ligands: 
+    - SMILES string: `smiles|C1=NC(=C2C(=N1)N(C=N2)[C@H]3[C@@H]([C@@H]([C@H](O3)COP(=O)(O)OP(=O)(O)OP(=O)(O)O)O)O)N`
+    - CCD code: `ccd|ATP`
+  - To specify multiple copies of a molecule, you can add a number after the sequence, e.g. `ccd|ATP|2` or `dna|ATCG|2`.
+
+Here is an example of biological complex with 2 proteins and 2 ATP ligands:
+```
+>Complex1|Prot1:Prot2:Lig
+FIRSTPROTEIN:SECONDPROTEIN:ccd|ATP|2
+>Complex2|Prot1:Prot2:Lig
+FIRSTPROTEIN:SECONDPROTEIN:ccd|ATP:ccd|ATP
+```
+As the `copies` is optional, the `Complex1` and `Complex2` will result in identical json input.
+
+ Note that MMseqs2-based MSAs are only generated for the protein sequences. RNA entries will not have unpaired MSAs in the json file. However, the field is marked as null so that AlphaFold3 can generate MSAs for them. 
 
 ### GPU-accelerated search with ⁠`colabfold_search` ⁠
 ColabFold supports GPU-accelerated MSA searches through [MMseqs2-GPU](https://www.biorxiv.org/content/10.1101/2024.11.13.623350v1).
@@ -150,7 +194,7 @@ Important: Ensure that the `CUDA_VISIBLE_DEVICES` environment variable is set co
 
 Run searches using the GPU server:
 ```
-colabfold_search /path/to/bin/mmseqs input_sequences.fasta /path/to/db_folder msas --gpu 1 --gpu-server 1
+colabfold_search --mmseqs /path/to/bin/mmseqs input_sequences.fasta /path/to/db_folder msas --gpu 1 --gpu-server 1
 ```
 To stop the server(s) when done:
 ```
@@ -192,72 +236,3 @@ For more details, see [GPU-accelerated search](https://github.com/soedinglab/MMs
   Science (2021) doi: [10.1126/science.abj8754](https://doi.org/10.1126/science.abj8754)
 
 [![DOI](https://zenodo.org/badge/doi/10.5281/zenodo.5123296.svg)](https://doi.org/10.5281/zenodo.5123296)
-
------------------
-**OLD Updates**
-```diff
-  31Jul2023: 2023/07/31: The ColabFold MSA server is back to normal
-             It was using older DB (UniRef30 2202/PDB70 220313) from 27th ~8:30 AM CEST to 31st ~11:10 AM CEST.
-  27Jul2023: ColabFold MSA server issue:
-             We are using the backup server with old databases
-             (UniRef30 2202/PDB70 220313) starting from ~8:30 AM CEST until we resolve the issue.
-             Resolved on 31Jul2023 ~11:10 CEST.
-  12Jun2023: New databases! UniRef30 updated to 2302 and PDB to 230517.
-             We now use PDB100 instead of PDB70 (see notes in the [main](https://colabfold.com) notebook).
-  12Jun2023: We introduced a new default pairing strategy:
-             Previously, for multimer predictions with more than 2 chains,
-             we only pair if all sequences taxonomically match ("complete" pairing).
-             The new default "greedy" strategy pairs any taxonomically matching subsets.
-  30Apr2023: Amber is working again in our ColabFold Notebook
-  29Apr2023: Amber is not working in our Notebook due to Colab update
-  18Feb2023: v1.5.2 - fixing: fixing memory leak for large proteins
-                    - fixing: --use_dropout (random seed was not changing between recycles)
-  06Feb2023: v1.5.1 - fixing: --save-all/--save-recycles
-  04Feb2023: v1.5.0 - ColabFold updated to use AlphaFold v2.3.1!
-  03Jan2023: The MSA server's faulty hardware from 12/26 was replaced.
-             There were intermittent failures on 12/26 and 1/3. Currently,
-             there are no known issues. Let us know if you experience any.
-  10Oct2022: Bugfix: random_seed was not being used for alphafold-multimer.
-             Same structure was returned regardless of defined seed. This
-             has been fixed!
-  13Jul2022: We have set up a new ColabFold MSA server provided by Korean
-             Bioinformation Center. It provides accelerated MSA generation,
-             we updated the UniRef30 to 2022_02 and PDB/PDB70 to 220313.
-  11Mar2022: We use in default AlphaFold-multimer-v2 weights for complex modeling.
-             We also offer the old complex modes "AlphaFold-ptm" or "AlphaFold-multimer-v1"
-  04Mar2022: ColabFold now uses a much more powerful server for MSAs and searches through the ColabFoldDB instead of BFD/MGnify.
-             Please let us know if you observe any issues.
-  26Jan2022: AlphaFold2_mmseqs2, AlphaFold2_batch and colabfold_batch's multimer complexes predictions are
-             now in default reranked by iptmscore*0.8+ptmscore*0.2 instead of ptmscore
-  16Aug2021: WARNING - MMseqs2 API is undergoing upgrade, you may see error messages.
-  17Aug2021: If you see any errors, please report them.
-  17Aug2021: We are still debugging the MSA generation procedure...
-  20Aug2021: WARNING - MMseqs2 API is undergoing upgrade, you may see error messages.
-             To avoid Google Colab from crashing, for large MSA we did -diff 1000 to get
-             1K most diverse sequences. This caused some large MSA to degrade in quality,
-             as sequences close to query were being merged to single representive.
-             We are working on updating the server (today) to fix this, by making sure
-             that both diverse and sequences close to query are included in the final MSA.
-             We'll post update here when update is complete.
-  21Aug2021  The MSA issues should now be resolved! Please report any errors you see.
-             In short, to reduce MSA size we filter (qsc > 0.8, id > 0.95) and take 3K
-             most diverse sequences at different qid (sequence identity to query) intervals
-             and merge them. More specifically 3K sequences at qid at (0→0.2),(0.2→0.4),
-             (0.4→0.6),(0.6→0.8) and (0.8→1). If you submitted your sequence between
-             16Aug2021 and 20Aug2021, we recommend submitting again for best results!
-  21Aug2021  The use_templates option in AlphaFold2_mmseqs2 is not properly working. We are
-             working on fixing this. If you are not using templates, this does not affect the
-             the results. Other notebooks that do not use_templates are unaffected.
-  21Aug2021  The templates issue is resolved!
-  11Nov2021  [AlphaFold2_mmseqs2] now uses Alphafold-multimer for complex (homo/hetero-oligomer) modeling.
-             Use [AlphaFold2_advanced] notebook for the old complex prediction logic.
-  11Nov2021  ColabFold can be installed locally using pip!
-  14Nov2021  Template based predictions works again in the Alphafold2_mmseqs2 notebook.
-  14Nov2021  WARNING "Single-sequence" mode in AlphaFold2_mmseqs2 and AlphaFold2_batch was broken
-             starting 11Nov2021. The MMseqs2 MSA was being used regardless of selection.
-  14Nov2021  "Single-sequence" mode is now fixed.
-  20Nov2021  WARNING "AMBER" mode in AlphaFold2_mmseqs2 and AlphaFold2_batch was broken
-             starting 11Nov2021. Unrelaxed proteins were returned instead.
-  20Nov2021  "AMBER" is fixed thanks to Kevin Pan
-```
------------------
