@@ -575,6 +575,7 @@ def get_msa_and_templates(
     use_env = "mmseqs2_uniref_env" in msa_mode or "mmseqs2_uniref_env_envpair" in msa_mode
     use_omg = 'omg' in msa_mode
     use_envhog = 'envhog' in msa_mode
+    use_logan = 'logan' in msa_mode
     use_envpair = msa_mode == "mmseqs2_uniref_env_envpair"
     if isinstance(query_sequences, str): query_sequences = [query_sequences]
 
@@ -608,6 +609,7 @@ def get_msa_and_templates(
                     use_env = use_env,
                     use_omg = use_omg,
                     use_envhog = use_envhog,
+                    use_logan = use_logan,
                     use_templates=False,
                     host_url=host_url,
                     user_agent=user_agent,
@@ -624,6 +626,7 @@ def get_msa_and_templates(
                 use_env = use_env,
                 use_omg = use_omg,
                 use_envhog = use_envhog,
+                use_logan = use_logan,
                 use_templates=True,
                 host_url=host_url,
                 user_agent=user_agent,
@@ -675,6 +678,7 @@ def get_msa_and_templates(
                 use_env = use_env,
                 use_omg = use_omg,
                 use_envhog = use_envhog,
+                use_logan = use_logan,
                 use_pairing=False,
                 host_url=host_url,
                 user_agent=user_agent,
@@ -1628,6 +1632,7 @@ def main():
         choices=[
             "mmseqs2_uniref_env",
             "mmseqs2_uniref_env_omg_envhog",
+            "mmseqs2_uniref_env_omg_envhog_logan",
             "mmseqs2_uniref_env_envpair",
             "mmseqs2_uniref",
             "single_sequence",
